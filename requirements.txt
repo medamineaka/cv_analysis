@@ -1,0 +1,7 @@
+pytesseract
+pdf2image
+python-docx
+pandas
+scikit-learn
+nltk
+joblib
