@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+temp/
+.idea/
+models/
+data/
+*.h5
+*.pkl
+*.csv
