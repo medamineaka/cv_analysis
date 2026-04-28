@@ -1,16 +1,17 @@
 # classification_section.py
 
 import os
+import re
 import joblib
 import numpy as np
 from tensorflow.keras.models import load_model
 
 
 # ════════════════════════════════════════════════
-# 0. PATH PRO (🔥 FIX PRINCIPAL)
+# 0. PATHS
 # ════════════════════════════════════════════════
 
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+BASE_DIR   = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 MODELS_DIR = os.path.join(BASE_DIR, "models")
 
 
@@ -23,118 +24,135 @@ _MODELS = {}
 
 class Classifier:
     def __init__(self, model_path, vect_path, enc_path):
-
         key = model_path
-
         if key in _MODELS:
-            cached = _MODELS[key]
-            self.model = cached["model"]
+            cached        = _MODELS[key]
+            self.model      = cached["model"]
             self.vectorizer = cached["vectorizer"]
-            self.encoder = cached["encoder"]
+            self.encoder    = cached["encoder"]
             return
-
-        print("\n[DEBUG] Loading model:", model_path)
 
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model not found: {model_path}")
-
         if not os.path.exists(vect_path):
             raise FileNotFoundError(f"Vectorizer not found: {vect_path}")
-
         if not os.path.exists(enc_path):
             raise FileNotFoundError(f"Encoder not found: {enc_path}")
 
-        self.model = load_model(model_path)
+        self.model      = load_model(model_path)
         self.vectorizer = joblib.load(vect_path)
-        self.encoder = joblib.load(enc_path)
+        self.encoder    = joblib.load(enc_path)
 
         _MODELS[key] = {
-            "model": self.model,
+            "model":      self.model,
             "vectorizer": self.vectorizer,
-            "encoder": self.encoder
+            "encoder":    self.encoder
         }
 
 
 # ════════════════════════════════════════════════
-# 2. SEGMENTATION (🔥 FIX PRINCIPAL QUALITÉ)
+# 2. NORMALISATION POUR NN
+# (le dataset d'entraînement n'a pas d'accents)
 # ════════════════════════════════════════════════
 
-def _segmenter_texte(text: str):
+def _normaliser_pour_nn(text: str) -> str:
+    """
+    Normalise le texte UNIQUEMENT pour le NN.
+    Le texte original (avec accents) reste intact pour l'affichage.
+    """
+    remplacements = {
+        "é": "e", "è": "e", "ê": "e", "ë": "e",
+        "à": "a", "â": "a", "ä": "a",
+        "ù": "u", "û": "u", "ü": "u",
+        "ô": "o", "ö": "o",
+        "î": "i", "ï": "i",
+        "ç": "c"
+    }
+    text = text.lower()
+    for accent, lettre in remplacements.items():
+        text = text.replace(accent, lettre)
+    return text
 
+
+# ════════════════════════════════════════════════
+# 3. SEGMENTATION
+# ════════════════════════════════════════════════
+
+def _segmenter_texte(text: str) -> list:
     if not text:
         return []
 
-    # structure minimale
+    # Ajouter sauts de ligne sur séparateurs naturels
     text = text.replace(":", ":\n")
     text = text.replace(". ", ".\n")
     text = text.replace(" - ", "\n- ")
 
+    # Ajouter saut avant mots-clés de sections
     keywords = [
-        "experience", "formation", "competence", "skills",
-        "education", "langue", "projet", "contact"
+        "experience", "formation", "competence", "competences",
+        "skills", "education", "langue", "langues",
+        "projet", "projets", "contact", "interet", "interets",
+        "achievement", "certification"
     ]
-
     for k in keywords:
-        text = text.replace(k, f"\n{k}")
+        text = re.sub(rf"\b{k}\b", f"\n{k}", text, flags=re.IGNORECASE)
 
     lignes = text.split("\n")
+    blocs  = []
 
-    blocs = []
-
-    for l in lignes:
-        l = l.strip()
-
-        if len(l) < 3:
+    for ligne in lignes:
+        ligne = ligne.strip()
+        if len(ligne) < 3:
             continue
 
-        # 🔥 découpage OCR long
-        if len(l) > 120:
-            words = l.split()
+        # Découper les blocs trop longs (OCR parfois colle tout)
+        if len(ligne) > 120:
+            words = ligne.split()
             chunk = []
-
             for w in words:
                 chunk.append(w)
-
                 if len(chunk) >= 10:
                     blocs.append(" ".join(chunk))
                     chunk = []
-
             if chunk:
                 blocs.append(" ".join(chunk))
         else:
-            blocs.append(l)
+            blocs.append(ligne)
 
     return blocs
 
 
 # ════════════════════════════════════════════════
-# 3. PREDICTION
+# 4. PRÉDICTION
 # ════════════════════════════════════════════════
 
-def _predire_blocs(classifier: Classifier, blocs: list):
-
+def _predire_blocs(classifier: Classifier, blocs: list) -> list:
     if not blocs:
         return []
 
-    X = classifier.vectorizer.transform(blocs).toarray()
+    # Normaliser pour NN (sans accents) mais garder originaux pour affichage
+    blocs_normalises = [_normaliser_pour_nn(b) for b in blocs]
+
+    X      = classifier.vectorizer.transform(blocs_normalises).toarray()
     y_pred = np.argmax(classifier.model.predict(X, verbose=0), axis=1)
     labels = classifier.encoder.inverse_transform(y_pred)
 
+    # Retourner texte ORIGINAL + label
     return list(zip(blocs, labels))
 
 
 # ════════════════════════════════════════════════
-# 4. REGROUPEMENT
+# 5. REGROUPEMENT PAR SECTIONS
 # ════════════════════════════════════════════════
 
-def _regrouper_sections(predictions: list, labels_possibles: list):
-
+def _regrouper_sections(predictions: list, labels_possibles: list) -> dict:
     sections = {label: [] for label in labels_possibles}
 
     for texte, label in predictions:
         if label in sections:
             sections[label].append(texte)
 
+    # Joindre les blocs de chaque section
     for k in sections:
         sections[k] = "\n".join(sections[k]).strip()
 
@@ -142,7 +160,7 @@ def _regrouper_sections(predictions: list, labels_possibles: list):
 
 
 # ════════════════════════════════════════════════
-# 5. LABELS
+# 6. LABELS
 # ════════════════════════════════════════════════
 
 CV_LABELS = [
@@ -160,61 +178,50 @@ OFFRE_LABELS = [
 
 
 # ════════════════════════════════════════════════
-# 6. CLASSIFICATION CV
+# 7. CLASSIFICATION CV
 # ════════════════════════════════════════════════
 
 def classifier_cv(json_cv: dict, debug=False) -> dict:
-
     classifier = Classifier(
         model_path=os.path.join(MODELS_DIR, "nn_cv.h5"),
-        vect_path=os.path.join(MODELS_DIR, "vectorizer_cv.pkl"),
-        enc_path=os.path.join(MODELS_DIR, "encoder_cv.pkl")
+        vect_path =os.path.join(MODELS_DIR, "vectorizer_cv.pkl"),
+        enc_path  =os.path.join(MODELS_DIR, "encoder_cv.pkl")
     )
 
     texte = json_cv.get("content", "")
     blocs = _segmenter_texte(texte)
 
     if debug:
-        print("\n[DEBUG BLOCS CV]")
+        print(f"\n[DEBUG] {len(blocs)} blocs CV détectés")
         for b in blocs[:10]:
-            print("•", b)
+            print("  •", b)
 
     predictions = _predire_blocs(classifier, blocs)
-    sections = _regrouper_sections(predictions, CV_LABELS)
+    sections    = _regrouper_sections(predictions, CV_LABELS)
 
-    return {
-        "type": "cv",
-        "sections": sections
-    }
+    return {"type": "cv", "sections": sections}
 
 
 # ════════════════════════════════════════════════
-# 7. CLASSIFICATION OFFRE
+# 8. CLASSIFICATION OFFRE
 # ════════════════════════════════════════════════
 
 def classifier_offre(json_offre: dict, debug=False) -> dict:
-
     classifier = Classifier(
         model_path=os.path.join(MODELS_DIR, "nn_offre.h5"),
-        vect_path=os.path.join(MODELS_DIR, "vectorizer_offre.pkl"),
-        enc_path=os.path.join(MODELS_DIR, "encoder_offre.pkl")
+        vect_path =os.path.join(MODELS_DIR, "vectorizer_offre.pkl"),
+        enc_path  =os.path.join(MODELS_DIR, "encoder_offre.pkl")
     )
 
     texte = json_offre.get("content", "")
     blocs = _segmenter_texte(texte)
 
     if debug:
-        print("\n[DEBUG BLOCS OFFRE]")
+        print(f"\n[DEBUG] {len(blocs)} blocs Offre détectés")
         for b in blocs[:10]:
-            print("•", b)
+            print("  •", b)
 
     predictions = _predire_blocs(classifier, blocs)
-    sections = _regrouper_sections(predictions, OFFRE_LABELS)
+    sections    = _regrouper_sections(predictions, OFFRE_LABELS)
 
-    return {
-        "type": "offre",
-        "sections": sections
-    }
-
-print("\n[DEBUG PATH]")
-print(os.path.join(MODELS_DIR, "nn_cv.h5"))
+    return {"type": "offre", "sections": sections}
