@@ -7,19 +7,19 @@ from classification_section import classifier_cv, classifier_offre
 
 # ── Modules futurs (activés automatiquement quand livrés)
 try:
-    from script_metier import detecter_metier_cluster
+    from metier import detecter_metier_cluster
     METIER_READY = True
 except ImportError:
     METIER_READY = False
 
 try:
-    from script_score import calculer_score
+    from scoring import calculer_score
     SCORE_READY = True
 except ImportError:
     SCORE_READY = False
 
 try:
-    from script_recommendation import generer_recommandations
+    from recommendation import generer_recommandations
     RECO_READY = True
 except ImportError:
     RECO_READY = False
@@ -154,10 +154,41 @@ if __name__ == "__main__":
     cv_path = "test/2.pdf"
 
     offre_json = json.dumps({
-        "offre": "Developpeur Python. Competences: Python, Django. Experience 2 ans. Localisation Rabat."
+        "offre": '''"À propos de l’offre d’emploi
+Dans le cadre du développement d’une plateforme digitale ambitieuse à forte dimension technologique, nous recherchons un Développeur Full Stack Senior capable de structurer et développer une architecture moderne, performante et scalable.
+
+
+Description du poste: Elite Force ltd. recherche un Développeur Full Stack Senior motivé pour rejoindre notre équipe en pleine croissance à Casablanca. Dans ce rôle à temps plein, vous serez responsable du développement complet d'applications, allant du front-end au back-end. Vos responsabilités comprendront la conception, le développement et la maintenance de solutions logicielles performantes et sécurisées. Vous collaborerez étroitement avec les équipes produit et design afin de livrer des expériences utilisateurs optimales. 
+
+
+
+Qualifications
+
+Minimum 5 ans d’expérience en développement Full Stack
+Maîtrise d’un stack moderne (React / Next.js / Node.js ou équivalent)
+Solide compréhension des bases de données (PostgreSQL ou MongoDB)
+Expérience avec APIs REST et systèmes sécurisés
+Autonomie, rigueur et esprit orienté solution
+Conditions
+
+Rémunération attractive selon profil
+Possibilité d’évolution vers rôle Lead
+Projet structurant avec vision long terme
+"'''
     }, ensure_ascii=False)
 
     result = pipeline(cv_path, offre_json, debug=True)
 
     print("\n=== RÉSULTAT FINAL ===")
     print(json.dumps(result, indent=2, ensure_ascii=False))
+
+    # Ajoutez temporairemen
+
+    from extraction import extraire_cv
+    import os
+
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    cv_brut = extraire_cv(os.path.join(BASE_DIR, "test/2.pdf"))
+    print("\n=== TEXTE BRUT ===")
+    print(cv_brut["content"])
+    print("==================")
